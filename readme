@@ -1,0 +1,1008 @@
+#!/usr/bin/env python
+"""Create database tables and seed initial data.
+
+Run this script after setting up the database and before starting the application.
+"""
+
+import sys
+import os
+import uuid
+from datetime import datetime, timedelta
+from decimal import Decimal
+
+# Add the parent directory to the path so we can import app modules
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from app.database import engine, Base, SessionLocal
+from app import models
+from app.auth import get_password_hash
+
+def create_tables():
+    """Create all tables defined in models."""
+    print("Creating database tables...")
+    try:
+        Base.metadata.create_all(bind=engine)
+        print("Tables created successfully!")
+    except Exception as e:
+        print(f"Error creating tables: {e}")
+        sys.exit(1)
+
+def seed_users(db):
+    """Seed users with different roles (all emails @eniscotours.com)."""
+    print("Seeding users...")
+    users_data = [
+        # Admin
+        {"full_name": "System Administrator", "email": "admin@eniscotours.com", "phone": "+260975000001", "user_type": "admin", "role": "admin"},
+        # Managers
+        {"full_name": "Operations Manager", "email": "manager@eniscotours.com", "phone": "+260975000002", "user_type": "manager", "role": "operations_manager"},
+        {"full_name": "Finance Manager", "email": "finance@eniscotours.com", "phone": "+260975000003", "user_type": "manager", "role": "finance_officer"},
+        # Staff
+        {"full_name": "Sales Officer One", "email": "sales@eniscotours.com", "phone": "+260975000004", "user_type": "staff", "role": "sales_officer"},
+        {"full_name": "Customer Support Agent", "email": "support@eniscotours.com", "phone": "+260975000005", "user_type": "staff", "role": "sales_officer"},
+        # Clients
+        {"full_name": "John Doe", "email": "john.doe@eniscotours.com", "phone": "+260977000001", "user_type": "client", "role": "client"},
+        {"full_name": "Jane Smith", "email": "jane.smith@eniscotours.com", "phone": "+260977000002", "user_type": "client", "role": "client"},
+        {"full_name": "Peter Mwale", "email": "peter.mwale@eniscotours.com", "phone": "+260977000003", "user_type": "client", "role": "client"},
+    ]
+    for u in users_data:
+        existing = db.query(models.User).filter(models.User.email == u["email"]).first()
+        if not existing:
+            hashed = get_password_hash("1234")
+            user = models.User(
+                full_name=u["full_name"],
+                email=u["email"],
+                phone=u["phone"],
+                password_hash=hashed,
+                user_type=u["user_type"],
+                role=u["role"],
+                is_active=True
+            )
+            db.add(user)
+    db.commit()
+    print(f"Seeded {len(users_data)} users.")
+
+def seed_airlines(db):
+    """Seed airlines serving Zambia."""
+    airlines_data = [
+        {"name": "Emirates", "code": "EK", "is_price_known": True},
+        {"name": "Ethiopian Airlines", "code": "ET", "is_price_known": True},
+        {"name": "Qatar Airways", "code": "QR", "is_price_known": True},
+        {"name": "Kenya Airways", "code": "KQ", "is_price_known": True},
+        {"name": "South African Airways", "code": "SA", "is_price_known": True},
+        {"name": "Proflight Zambia", "code": "P0", "is_price_known": True},
+        {"name": "RwandAir", "code": "WB", "is_price_known": True},
+        {"name": "Turkish Airlines", "code": "TK", "is_price_known": True},
+    ]
+    for a in airlines_data:
+        existing = db.query(models.Airline).filter(models.Airline.code == a["code"]).first()
+        if not existing:
+            airline = models.Airline(name=a["name"], code=a["code"], is_price_known=a["is_price_known"])
+            db.add(airline)
+    db.commit()
+    print("Seeded airlines.")
+
+def seed_flight_routes(db):
+    """Seed flight routes from Lusaka (LUN) to common destinations."""
+    # First get airline ids
+    airlines = {a.code: a.id for a in db.query(models.Airline).all()}
+    routes = [
+        {"airline_code": "EK", "origin": "LUN", "destination": "DXB", "travel_class": "economy", "base_price": 4500},
+        {"airline_code": "EK", "origin": "LUN", "destination": "DXB", "travel_class": "business", "base_price": 12000},
+        {"airline_code": "ET", "origin": "LUN", "destination": "ADD", "travel_class": "economy", "base_price": 3500},
+        {"airline_code": "ET", "origin": "LUN", "destination": "ADD", "travel_class": "business", "base_price": 9000},
+        {"airline_code": "QR", "origin": "LUN", "destination": "DOH", "travel_class": "economy", "base_price": 4800},
+        {"airline_code": "KQ", "origin": "LUN", "destination": "NBO", "travel_class": "economy", "base_price": 2800},
+        {"airline_code": "SA", "origin": "LUN", "destination": "JNB", "travel_class": "economy", "base_price": 2200},
+        {"airline_code": "P0", "origin": "LUN", "destination": "NLA", "travel_class": "economy", "base_price": 1200},  # Ndola
+        {"airline_code": "P0", "origin": "LUN", "destination": "LVI", "travel_class": "economy", "base_price": 1500},  # Livingstone
+        {"airline_code": "WB", "origin": "LUN", "destination": "KGL", "travel_class": "economy", "base_price": 3200},
+        {"airline_code": "TK", "origin": "LUN", "destination": "IST", "travel_class": "economy", "base_price": 5200},
+    ]
+    for r in routes:
+        airline_id = airlines.get(r["airline_code"])
+        if not airline_id:
+            continue
+        existing = db.query(models.FlightRoute).filter(
+            models.FlightRoute.airline_id == airline_id,
+            models.FlightRoute.origin == r["origin"],
+            models.FlightRoute.destination == r["destination"],
+            models.FlightRoute.travel_class == r["travel_class"]
+        ).first()
+        if not existing:
+            route = models.FlightRoute(
+                airline_id=airline_id,
+                origin=r["origin"],
+                destination=r["destination"],
+                travel_class=r["travel_class"],
+                base_price=Decimal(r["base_price"])
+            )
+            db.add(route)
+    db.commit()
+    print("Seeded flight routes.")
+
+def seed_insurance_companies(db):
+    """Seed insurance companies in Zambia."""
+    companies = [
+        {"name": "Madison Insurance", "is_price_known": True},
+        {"name": "Professional Insurance", "is_price_known": True},
+        {"name": "Zanaco Insurance", "is_price_known": True},
+        {"name": "NICO Insurance", "is_price_known": True},
+        {"name": "Sanlam Zambia", "is_price_known": True},
+        {"name": "Hollard Insurance", "is_price_known": True},
+        {"name": "Britam Insurance", "is_price_known": True},
+        {"name": "Prudential Zambia", "is_price_known": True},
+    ]
+    for c in companies:
+        existing = db.query(models.InsuranceCompany).filter(models.InsuranceCompany.name == c["name"]).first()
+        if not existing:
+            company = models.InsuranceCompany(name=c["name"], is_price_known=c["is_price_known"])
+            db.add(company)
+    db.commit()
+    print("Seeded insurance companies.")
+
+def seed_insurance_premiums(db):
+    """Seed insurance premiums for common vehicle types."""
+    companies = {c.name: c.id for c in db.query(models.InsuranceCompany).all()}
+    premiums_data = [
+        # Madison Insurance
+        {"company_name": "Madison Insurance", "vehicle_type": "Private Car", "insurance_type": "third_party", "premium_per_quarter": 250},
+        {"company_name": "Madison Insurance", "vehicle_type": "Private Car", "insurance_type": "comprehensive", "premium_per_quarter": 500},
+        {"company_name": "Madison Insurance", "vehicle_type": "Commercial Vehicle", "insurance_type": "third_party", "premium_per_quarter": 400},
+        {"company_name": "Madison Insurance", "vehicle_type": "Commercial Vehicle", "insurance_type": "comprehensive", "premium_per_quarter": 800},
+        {"company_name": "Madison Insurance", "vehicle_type": "Motorcycle", "insurance_type": "third_party", "premium_per_quarter": 120},
+        # Professional Insurance
+        {"company_name": "Professional Insurance", "vehicle_type": "Private Car", "insurance_type": "third_party", "premium_per_quarter": 230},
+        {"company_name": "Professional Insurance", "vehicle_type": "Private Car", "insurance_type": "comprehensive", "premium_per_quarter": 480},
+        {"company_name": "Professional Insurance", "vehicle_type": "Commercial Vehicle", "insurance_type": "third_party", "premium_per_quarter": 380},
+        # Zanaco Insurance
+        {"company_name": "Zanaco Insurance", "vehicle_type": "Private Car", "insurance_type": "third_party", "premium_per_quarter": 260},
+        {"company_name": "Zanaco Insurance", "vehicle_type": "Private Car", "insurance_type": "comprehensive", "premium_per_quarter": 520},
+        # NICO Insurance
+        {"company_name": "NICO Insurance", "vehicle_type": "Private Car", "insurance_type": "third_party", "premium_per_quarter": 240},
+        {"company_name": "NICO Insurance", "vehicle_type": "Private Car", "insurance_type": "comprehensive", "premium_per_quarter": 490},
+        # Sanlam
+        {"company_name": "Sanlam Zambia", "vehicle_type": "Private Car", "insurance_type": "third_party", "premium_per_quarter": 255},
+        {"company_name": "Sanlam Zambia", "vehicle_type": "Private Car", "insurance_type": "comprehensive", "premium_per_quarter": 510},
+        # Hollard
+        {"company_name": "Hollard Insurance", "vehicle_type": "Private Car", "insurance_type": "third_party", "premium_per_quarter": 245},
+        {"company_name": "Hollard Insurance", "vehicle_type": "Private Car", "insurance_type": "comprehensive", "premium_per_quarter": 495},
+        # Britam
+        {"company_name": "Britam Insurance", "vehicle_type": "Private Car", "insurance_type": "third_party", "premium_per_quarter": 235},
+        # Prudential
+        {"company_name": "Prudential Zambia", "vehicle_type": "Private Car", "insurance_type": "third_party", "premium_per_quarter": 245},
+    ]
+    for p in premiums_data:
+        company_id = companies.get(p["company_name"])
+        if not company_id:
+            continue
+        existing = db.query(models.InsurancePremium).filter(
+            models.InsurancePremium.company_id == company_id,
+            models.InsurancePremium.vehicle_type == p["vehicle_type"],
+            models.InsurancePremium.insurance_type == p["insurance_type"]
+        ).first()
+        if not existing:
+            premium = models.InsurancePremium(
+                company_id=company_id,
+                vehicle_type=p["vehicle_type"],
+                insurance_type=p["insurance_type"],
+                base_premium_per_quarter=Decimal(p["premium_per_quarter"])
+            )
+            db.add(premium)
+    db.commit()
+    print("Seeded insurance premiums.")
+
+def seed_vehicle_inventory(db):
+    """Seed some vehicles for car hire."""
+    vehicles = [
+        {"number_plate": "BAB 1001", "model": "Toyota Hilux", "type": "Double Cab", "daily_rate": 800, "hourly_rate": 100, "is_available": True, "can_hire_external": False},
+        {"number_plate": "BAB 1002", "model": "Toyota Fortuner", "type": "SUV", "daily_rate": 1000, "hourly_rate": 120, "is_available": True, "can_hire_external": False},
+        {"number_plate": "BAB 1003", "model": "Honda CR-V", "type": "SUV", "daily_rate": 750, "hourly_rate": 90, "is_available": True, "can_hire_external": False},
+        {"number_plate": "BAB 1004", "model": "Toyota Corolla", "type": "Sedan", "daily_rate": 500, "hourly_rate": 60, "is_available": True, "can_hire_external": False},
+        {"number_plate": "BAB 1005", "model": "Hyundai H1", "type": "Minibus", "daily_rate": 1200, "hourly_rate": 150, "is_available": True, "can_hire_external": False},
+        {"number_plate": "BAB 1006", "model": "Ford Ranger", "type": "Double Cab", "daily_rate": 850, "hourly_rate": 110, "is_available": True, "can_hire_external": False},
+        {"number_plate": "BAB 1007", "model": "Nissan Navara", "type": "Double Cab", "daily_rate": 820, "hourly_rate": 105, "is_available": True, "can_hire_external": False},
+        {"number_plate": "BAB 1008", "model": "Toyota Prado", "type": "SUV", "daily_rate": 1500, "hourly_rate": 180, "is_available": True, "can_hire_external": True},
+    ]
+    for v in vehicles:
+        existing = db.query(models.VehicleInventory).filter(models.VehicleInventory.number_plate == v["number_plate"]).first()
+        if not existing:
+            vehicle = models.VehicleInventory(
+                number_plate=v["number_plate"],
+                model=v["model"],
+                type=v["type"],
+                daily_rate=Decimal(v["daily_rate"]),
+                hourly_rate=Decimal(v["hourly_rate"]),
+                is_available=v["is_available"],
+                can_hire_external=v["can_hire_external"]
+            )
+            db.add(vehicle)
+    db.commit()
+    print("Seeded vehicle inventory.")
+
+def seed_service_fee_settings(db):
+    """Set default service fees for flight ticketing, insurance, and visa."""
+    fees = [
+        {"service_type": "flight_ticketing", "fee_type": "percentage", "fee_value": 10.0},
+        {"service_type": "insurance", "fee_type": "percentage", "fee_value": 5.0},
+        {"service_type": "visa", "fee_type": "percentage", "fee_value": 10.0},
+    ]
+    for fee in fees:
+        existing = db.query(models.ServiceFeeSetting).filter(
+            models.ServiceFeeSetting.service_type == fee["service_type"]
+        ).first()
+        if not existing:
+            setting = models.ServiceFeeSetting(
+                service_type=fee["service_type"],
+                fee_type=fee["fee_type"],
+                fee_value=Decimal(fee["fee_value"])
+            )
+            db.add(setting)
+    db.commit()
+    print("Seeded service fee settings (including visa).")
+
+def main():
+    create_tables()
+    db = SessionLocal()
+    try:
+        seed_users(db)
+        seed_airlines(db)
+        seed_flight_routes(db)
+        seed_insurance_companies(db)
+        seed_insurance_premiums(db)
+        seed_vehicle_inventory(db)
+        seed_service_fee_settings(db)
+        print("All data seeded successfully!")
+    except Exception as e:
+        print(f"Error during seeding: {e}")
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+if __name__ == "__main__":
+    main()
+
+
+
+    in the python file above, it shows that when creating the tables, there is also data being inserted. but the 
+    forms below have some fileds which should be drop downs because we need to choose from a list 
+    of options coming from the database. For example, in the AirportTransferRequest form, the 
+    airline field should be a dropdown that fetches the list of airlines from the database. 
+    Similarly, in the CarHireRequest form, the vehicle_type field should also be a dropdown that 
+    fetches available vehicle types from the database. these dropdowns should be populated 
+    dynamically based on the data seeded in the database. these and many others, please make
+     them drops to be fetched from the database.
+
+give me full codes of all files you will modify;     
+import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import api from '../services/api';
+import toast from 'react-hot-toast';
+
+const AirportTransferRequest = () => {
+  const navigate = useNavigate();
+  const [loading, setLoading] = useState(false);
+
+  const [formData, setFormData] = useState({
+    action_type: 'quote',
+    full_name: '',
+    phone: '',
+    email: '',
+    flight_number: '',
+    airline: '',
+    arrival_time: '',
+    departure_time: '',
+    transfer_type: 'pickup', // pickup or dropoff
+    pickup_location: '',
+    dropoff_location: '',
+    pickup_date: '',
+    pickup_time: '',
+    passengers: 1,
+    luggage_count: 0,
+    vehicle_type: '',
+    special_requests: '',
+    base_amount: 0,
+    notes: ''
+  });
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+
+    const payload = {
+      ...formData,
+      email: formData.email || null,
+      arrival_time: formData.arrival_time ? new Date(formData.arrival_time).toISOString() : null,
+      departure_time: formData.departure_time ? new Date(formData.departure_time).toISOString() : null,
+      pickup_date: new Date(formData.pickup_date).toISOString(),
+      base_amount: parseFloat(formData.base_amount) || 0,
+      notes: formData.notes || null,
+    };
+
+    try {
+      const formDataObj = new FormData();
+      formDataObj.append('data', JSON.stringify(payload));
+      const res = await api.post('/api/airporttransfer/request', formDataObj, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      toast.success('Airport transfer request submitted!');
+      navigate('/dashboard');
+    } catch (err) {
+      toast.error('Failed to submit');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="container mx-auto px-4 py-12 max-w-4xl">
+      <div className="glass-card p-8">
+        <h1 className="text-3xl font-black mb-6">Airport Transfer Request</h1>
+        <form onSubmit={handleSubmit} className="space-y-8">
+          <fieldset className="border rounded-lg p-4">
+            <legend className="font-bold text-lg px-2">Personal Details</legend>
+            <div className="grid md:grid-cols-2 gap-4 mt-2">
+              <div><label className="block font-bold mb-1">Full Name *</label><input type="text" required className="w-full p-2 border rounded" value={formData.full_name} onChange={e => setFormData({...formData, full_name: e.target.value})} /></div>
+              <div><label className="block font-bold mb-1">Phone *</label><input type="tel" required className="w-full p-2 border rounded" value={formData.phone} onChange={e => setFormData({...formData, phone: e.target.value})} /></div>
+              <div><label className="block font-bold mb-1">Email *</label><input type="email" required className="w-full p-2 border rounded" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} /></div>
+            </div>
+          </fieldset>
+
+          <fieldset className="border rounded-lg p-4">
+            <legend className="font-bold text-lg px-2">Flight Details</legend>
+            <div className="grid md:grid-cols-2 gap-4 mt-2">
+              <div><label className="block font-bold mb-1">Flight Number *</label><input type="text" required className="w-full p-2 border rounded" value={formData.flight_number} onChange={e => setFormData({...formData, flight_number: e.target.value})} /></div>
+              <div><label className="block font-bold mb-1">Airline</label><input type="text" className="w-full p-2 border rounded" value={formData.airline} onChange={e => setFormData({...formData, airline: e.target.value})} /></div>
+              <div><label className="block font-bold mb-1">Arrival Time</label><input type="datetime-local" className="w-full p-2 border rounded" value={formData.arrival_time} onChange={e => setFormData({...formData, arrival_time: e.target.value})} /></div>
+              <div><label className="block font-bold mb-1">Departure Time</label><input type="datetime-local" className="w-full p-2 border rounded" value={formData.departure_time} onChange={e => setFormData({...formData, departure_time: e.target.value})} /></div>
+            </div>
+          </fieldset>
+
+          <fieldset className="border rounded-lg p-4">
+            <legend className="font-bold text-lg px-2">Transfer Details</legend>
+            <div className="grid md:grid-cols-2 gap-4 mt-2">
+              <div><label className="block font-bold mb-1">Transfer Type *</label>
+                <select className="w-full p-2 border rounded" value={formData.transfer_type} onChange={e => setFormData({...formData, transfer_type: e.target.value})}>
+                  <option value="pickup">From Airport to Destination</option>
+                  <option value="dropoff">From Pickup to Airport</option>
+                </select>
+              </div>
+              <div><label className="block font-bold mb-1">Pickup Location *</label><input type="text" required className="w-full p-2 border rounded" value={formData.pickup_location} onChange={e => setFormData({...formData, pickup_location: e.target.value})} /></div>
+              <div><label className="block font-bold mb-1">Drop-off Location *</label><input type="text" required className="w-full p-2 border rounded" value={formData.dropoff_location} onChange={e => setFormData({...formData, dropoff_location: e.target.value})} /></div>
+              <div><label className="block font-bold mb-1">Pickup Date *</label><input type="date" required className="w-full p-2 border rounded" value={formData.pickup_date} onChange={e => setFormData({...formData, pickup_date: e.target.value})} /></div>
+              <div><label className="block font-bold mb-1">Pickup Time</label><input type="time" className="w-full p-2 border rounded" value={formData.pickup_time} onChange={e => setFormData({...formData, pickup_time: e.target.value})} /></div>
+              <div><label className="block font-bold mb-1">Passengers</label><input type="number" min="1" className="w-full p-2 border rounded" value={formData.passengers} onChange={e => setFormData({...formData, passengers: e.target.value})} /></div>
+              <div><label className="block font-bold mb-1">Luggage Count</label><input type="number" min="0" className="w-full p-2 border rounded" value={formData.luggage_count} onChange={e => setFormData({...formData, luggage_count: e.target.value})} /></div>
+            </div>
+          </fieldset>
+
+          <fieldset className="border rounded-lg p-4">
+            <legend className="font-bold text-lg px-2">Vehicle Preference</legend>
+            <div className="grid md:grid-cols-2 gap-4 mt-2">
+              <div><label className="block font-bold mb-1">Vehicle Type</label><input type="text" className="w-full p-2 border rounded" value={formData.vehicle_type} onChange={e => setFormData({...formData, vehicle_type: e.target.value})} placeholder="e.g., Sedan, SUV, Minibus" /></div>
+              <div><label className="block font-bold mb-1">Special Requests</label><input type="text" className="w-full p-2 border rounded" value={formData.special_requests} onChange={e => setFormData({...formData, special_requests: e.target.value})} placeholder="e.g., wheelchair accessible" /></div>
+            </div>
+          </fieldset>
+
+          <div><label className="block font-bold mb-1">Base Amount (ZMW)</label><input type="number" step="0.01" className="w-full p-2 border rounded" value={formData.base_amount} onChange={e => setFormData({...formData, base_amount: e.target.value})} /></div>
+          <div><label className="block font-bold mb-1">Notes</label><textarea className="w-full p-2 border rounded" rows="3" value={formData.notes} onChange={e => setFormData({...formData, notes: e.target.value})} /></div>
+
+          <button type="submit" disabled={loading} className="btn-primary w-full">{loading ? 'Submitting...' : 'Submit Request'}</button>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+export default AirportTransferRequest;
+
+
+
+
+
+
+
+
+import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import api from '../services/api';
+import toast from 'react-hot-toast';
+
+const CarHireRequest = () => {
+  const navigate = useNavigate();
+  const [loading, setLoading] = useState(false);
+  const [files, setFiles] = useState({ license: null, passport: null });
+
+  const [formData, setFormData] = useState({
+    action_type: 'quote',
+    full_name: '',
+    phone: '',
+    email: '',
+    driver_license_number: '',
+    driver_license_expiry: '',
+    nationality: '',
+    date_of_birth: '',
+    pickup_location: '',
+    dropoff_location: '',
+    pickup_date: '',
+    pickup_time: '',
+    dropoff_date: '',
+    dropoff_time: '',
+    rental_duration_days: '',
+    vehicle_type: '',
+    preferred_model: '',
+    transmission: '',
+    fuel_policy: 'Full-to-Full',
+    additional_drivers: 0,
+    child_seat: false,
+    gps_navigation: false,
+    base_amount: 0,
+    notes: ''
+  });
+
+  const handleFileChange = (e, type) => {
+    const file = e.target.files[0];
+    if (file) setFiles(prev => ({ ...prev, [type]: file }));
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+
+    const payload = {
+      ...formData,
+      service_type: 'carhire',
+      email: formData.email || null,
+      driver_license_expiry: new Date(formData.driver_license_expiry).toISOString(),
+      date_of_birth: formData.date_of_birth ? new Date(formData.date_of_birth).toISOString() : null,
+      pickup_date: new Date(formData.pickup_date).toISOString(),
+      dropoff_date: formData.dropoff_date ? new Date(formData.dropoff_date).toISOString() : null,
+      base_amount: parseFloat(formData.base_amount) || 0,
+      notes: formData.notes || null,
+    };
+
+    try {
+      const formDataObj = new FormData();
+      formDataObj.append('data', JSON.stringify(payload));
+      if (files.license) formDataObj.append('license_file', files.license);
+      if (files.passport) formDataObj.append('passport_file', files.passport);
+
+      const res = await api.post('/api/carhire/request', formDataObj, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      toast.success('Car hire request submitted!');
+      navigate('/dashboard');
+    } catch (err) {
+      toast.error('Failed to submit');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="container mx-auto px-4 py-12 max-w-4xl">
+      <div className="glass-card p-8">
+        <h1 className="text-3xl font-black mb-6">Car Hire / Rental Request</h1>
+        <form onSubmit={handleSubmit} className="space-y-8">
+          <fieldset className="border rounded-lg p-4">
+            <legend className="font-bold text-lg px-2">Personal Details</legend>
+            <div className="grid md:grid-cols-2 gap-4 mt-2">
+              <div><label className="block font-bold mb-1">Full Name *</label><input type="text" required className="w-full p-2 border rounded" value={formData.full_name} onChange={e => setFormData({...formData, full_name: e.target.value})} /></div>
+              <div><label className="block font-bold mb-1">Phone *</label><input type="tel" required className="w-full p-2 border rounded" value={formData.phone} onChange={e => setFormData({...formData, phone: e.target.value})} /></div>
+              <div><label className="block font-bold mb-1">Email *</label><input type="email" required className="w-full p-2 border rounded" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} /></div>
+              <div><label className="block font-bold mb-1">Nationality</label><input type="text" className="w-full p-2 border rounded" value={formData.nationality} onChange={e => setFormData({...formData, nationality: e.target.value})} /></div>
+              <div><label className="block font-bold mb-1">Date of Birth</label><input type="date" className="w-full p-2 border rounded" value={formData.date_of_birth} onChange={e => setFormData({...formData, date_of_birth: e.target.value})} /></div>
+            </div>
+          </fieldset>
+
+          <fieldset className="border rounded-lg p-4">
+            <legend className="font-bold text-lg px-2">Driver License</legend>
+            <div className="grid md:grid-cols-2 gap-4 mt-2">
+              <div><label className="block font-bold mb-1">License Number *</label><input type="text" required className="w-full p-2 border rounded" value={formData.driver_license_number} onChange={e => setFormData({...formData, driver_license_number: e.target.value})} /></div>
+              <div><label className="block font-bold mb-1">Expiry Date *</label><input type="date" required className="w-full p-2 border rounded" value={formData.driver_license_expiry} onChange={e => setFormData({...formData, driver_license_expiry: e.target.value})} /></div>
+            </div>
+          </fieldset>
+
+          <fieldset className="border rounded-lg p-4">
+            <legend className="font-bold text-lg px-2">Rental Details</legend>
+            <div className="grid md:grid-cols-2 gap-4 mt-2">
+              <div><label className="block font-bold mb-1">Pickup Location *</label><input type="text" required className="w-full p-2 border rounded" value={formData.pickup_location} onChange={e => setFormData({...formData, pickup_location: e.target.value})} /></div>
+              <div><label className="block font-bold mb-1">Drop-off Location</label><input type="text" className="w-full p-2 border rounded" value={formData.dropoff_location} onChange={e => setFormData({...formData, dropoff_location: e.target.value})} /></div>
+              <div><label className="block font-bold mb-1">Pickup Date *</label><input type="date" required className="w-full p-2 border rounded" value={formData.pickup_date} onChange={e => setFormData({...formData, pickup_date: e.target.value})} /></div>
+              <div><label className="block font-bold mb-1">Pickup Time</label><input type="time" className="w-full p-2 border rounded" value={formData.pickup_time} onChange={e => setFormData({...formData, pickup_time: e.target.value})} /></div>
+              <div><label className="block font-bold mb-1">Drop-off Date</label><input type="date" className="w-full p-2 border rounded" value={formData.dropoff_date} onChange={e => setFormData({...formData, dropoff_date: e.target.value})} /></div>
+              <div><label className="block font-bold mb-1">Drop-off Time</label><input type="time" className="w-full p-2 border rounded" value={formData.dropoff_time} onChange={e => setFormData({...formData, dropoff_time: e.target.value})} /></div>
+              <div><label className="block font-bold mb-1">Rental Duration (days)</label><input type="number" min="1" className="w-full p-2 border rounded" value={formData.rental_duration_days} onChange={e => setFormData({...formData, rental_duration_days: e.target.value})} /></div>
+            </div>
+          </fieldset>
+
+          <fieldset className="border rounded-lg p-4">
+            <legend className="font-bold text-lg px-2">Vehicle Preferences</legend>
+            <div className="grid md:grid-cols-2 gap-4 mt-2">
+              <div><label className="block font-bold mb-1">Vehicle Type</label><input type="text" className="w-full p-2 border rounded" value={formData.vehicle_type} onChange={e => setFormData({...formData, vehicle_type: e.target.value})} placeholder="e.g., SUV, Sedan" /></div>
+              <div><label className="block font-bold mb-1">Preferred Model</label><input type="text" className="w-full p-2 border rounded" value={formData.preferred_model} onChange={e => setFormData({...formData, preferred_model: e.target.value})} /></div>
+              <div><label className="block font-bold mb-1">Transmission</label>
+                <select className="w-full p-2 border rounded" value={formData.transmission} onChange={e => setFormData({...formData, transmission: e.target.value})}>
+                  <option value="">Any</option>
+                  <option value="Automatic">Automatic</option>
+                  <option value="Manual">Manual</option>
+                </select>
+              </div>
+              <div><label className="block font-bold mb-1">Fuel Policy</label>
+                <select className="w-full p-2 border rounded" value={formData.fuel_policy} onChange={e => setFormData({...formData, fuel_policy: e.target.value})}>
+                  <option value="Full-to-Full">Full-to-Full</option>
+                  <option value="Pre-paid">Pre-paid</option>
+                </select>
+              </div>
+              <div><label className="block font-bold mb-1">Additional Drivers</label><input type="number" min="0" className="w-full p-2 border rounded" value={formData.additional_drivers} onChange={e => setFormData({...formData, additional_drivers: parseInt(e.target.value) || 0})} /></div>
+              <div className="flex items-center gap-4"><label><input type="checkbox" checked={formData.child_seat} onChange={e => setFormData({...formData, child_seat: e.target.checked})} /> Child Seat</label><label><input type="checkbox" checked={formData.gps_navigation} onChange={e => setFormData({...formData, gps_navigation: e.target.checked})} /> GPS Navigation</label></div>
+            </div>
+          </fieldset>
+
+          <fieldset className="border rounded-lg p-4">
+            <legend className="font-bold text-lg px-2">Upload Documents</legend>
+            <div className="grid md:grid-cols-2 gap-4 mt-2">
+              <div><label className="block font-bold mb-1">Driver License Copy</label><input type="file" accept="image/*,application/pdf" onChange={(e) => handleFileChange(e, 'license')} className="w-full p-2 border rounded" /></div>
+              <div><label className="block font-bold mb-1">Passport Copy</label><input type="file" accept="image/*,application/pdf" onChange={(e) => handleFileChange(e, 'passport')} className="w-full p-2 border rounded" /></div>
+            </div>
+          </fieldset>
+
+          <div><label className="block font-bold mb-1">Base Amount (ZMW)</label><input type="number" step="0.01" className="w-full p-2 border rounded" value={formData.base_amount} onChange={e => setFormData({...formData, base_amount: e.target.value})} /></div>
+          <div><label className="block font-bold mb-1">Notes</label><textarea className="w-full p-2 border rounded" rows="3" value={formData.notes} onChange={e => setFormData({...formData, notes: e.target.value})} /></div>
+
+          <button type="submit" disabled={loading} className="btn-primary w-full">{loading ? 'Submitting...' : 'Submit Request'}</button>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+export default CarHireRequest;
+
+
+import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import api from '../services/api';
+import toast from 'react-hot-toast';
+import PriceCalculator from '../components/PriceCalculator';
+
+const FlightRequest = () => {
+  const navigate = useNavigate();
+  const [airlines, setAirlines] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [priceAvailable, setPriceAvailable] = useState(null);
+  const [calculatedPrice, setCalculatedPrice] = useState(null);
+  const [files, setFiles] = useState({ passport: null, visa: null });
+
+  const [formData, setFormData] = useState({
+    action_type: 'quote',
+    // Personal details
+    full_name: '',
+    passport_number: '',
+    passport_expiry: '',
+    nationality: '',
+    date_of_birth: '',
+    gender: 'male',
+    // Contact
+    phone: '',
+    email: '',
+    address: '',
+    // Flight details
+    airline_id: '',
+    origin: '',
+    destination: '',
+    travel_date: '',
+    return_date: '',
+    travel_class: 'economy',
+    passengers: 1,
+    // Additional services
+    meal_preference: 'standard',
+    seat_preference: 'window',
+    special_assistance: '',
+    // Internal
+    notes: '',
+    base_amount: 0
+  });
+
+  // Fetch airlines on mount
+  useEffect(() => {
+    api.get('/api/pricing/airlines')
+      .then(res => setAirlines(res.data))
+      .catch(err => console.error('Failed to load airlines', err));
+  }, []);
+
+  const handlePriceFetched = (amount) => {
+    setCalculatedPrice(amount);
+    setPriceAvailable(amount !== null);
+    if (amount !== null) {
+      setFormData(prev => ({ ...prev, base_amount: amount }));
+    }
+  };
+
+  const handleFileChange = (e, type) => {
+    const file = e.target.files[0];
+    if (file) {
+      setFiles(prev => ({ ...prev, [type]: file }));
+    }
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+
+    // Build payload
+    const payload = {
+      ...formData,
+      service_type: 'flight_ticketing',
+      email: formData.email || null,
+      travel_date: formData.travel_date ? new Date(formData.travel_date).toISOString() : null,
+      return_date: formData.return_date ? new Date(formData.return_date).toISOString() : null,
+      passengers: parseInt(formData.passengers, 10),
+      base_amount: calculatedPrice || parseFloat(formData.base_amount) || 0,
+      notes: formData.notes || null,
+      // Pass extra fields as JSON in a separate field (service_data)
+      service_data: {
+        passport_number: formData.passport_number,
+        passport_expiry: formData.passport_expiry,
+        nationality: formData.nationality,
+        date_of_birth: formData.date_of_birth,
+        gender: formData.gender,
+        address: formData.address,
+        meal_preference: formData.meal_preference,
+        seat_preference: formData.seat_preference,
+        special_assistance: formData.special_assistance,
+      }
+    };
+
+    try {
+      // Submit as multipart/form-data if we have files
+      if (files.passport || files.visa) {
+        const formDataObj = new FormData();
+        // Append all fields as JSON
+        formDataObj.append('data', JSON.stringify(payload));
+        if (files.passport) formDataObj.append('passport', files.passport);
+        if (files.visa) formDataObj.append('visa', files.visa);
+        const res = await api.post('/api/flight/request', formDataObj, {
+          headers: { 'Content-Type': 'multipart/form-data' }
+        });
+        toast.success('Flight request submitted!');
+        if (priceAvailable && formData.action_type !== 'quote') {
+          navigate(`/payment/flight/${res.data.id}`);
+        } else {
+          navigate('/dashboard');
+        }
+      } else {
+        const res = await api.post('/api/flight/request', payload);
+        toast.success('Flight request submitted!');
+        if (priceAvailable && formData.action_type !== 'quote') {
+          navigate(`/payment/flight/${res.data.id}`);
+        } else {
+          navigate('/dashboard');
+        }
+      }
+    } catch (err) {
+      const detail = err.response?.data?.detail;
+      if (Array.isArray(detail)) toast.error(detail.map(e => e.msg).join(', '));
+      else if (typeof detail === 'string') toast.error(detail);
+      else toast.error('Failed to submit');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="container mx-auto px-4 py-12 max-w-4xl">
+      <div className="glass-card p-8">
+        <h1 className="text-3xl font-black mb-6">Flight Booking Request</h1>
+        <form onSubmit={handleSubmit} className="space-y-8">
+          {/* Personal Information */}
+          <fieldset className="border rounded-lg p-4">
+            <legend className="font-bold text-lg px-2">Passenger Details</legend>
+            <div className="grid md:grid-cols-2 gap-4 mt-2">
+              <div><label className="block font-bold mb-1">Full Name (as per passport) *</label><input type="text" required className="w-full p-2 border rounded" value={formData.full_name} onChange={e => setFormData({...formData, full_name: e.target.value})} /></div>
+              <div><label className="block font-bold mb-1">Passport Number *</label><input type="text" required className="w-full p-2 border rounded" value={formData.passport_number} onChange={e => setFormData({...formData, passport_number: e.target.value})} /></div>
+              <div><label className="block font-bold mb-1">Passport Expiry Date *</label><input type="date" required className="w-full p-2 border rounded" value={formData.passport_expiry} onChange={e => setFormData({...formData, passport_expiry: e.target.value})} /></div>
+              <div><label className="block font-bold mb-1">Nationality *</label><input type="text" required className="w-full p-2 border rounded" value={formData.nationality} onChange={e => setFormData({...formData, nationality: e.target.value})} /></div>
+              <div><label className="block font-bold mb-1">Date of Birth *</label><input type="date" required className="w-full p-2 border rounded" value={formData.date_of_birth} onChange={e => setFormData({...formData, date_of_birth: e.target.value})} /></div>
+              <div><label className="block font-bold mb-1">Gender *</label><select className="w-full p-2 border rounded" value={formData.gender} onChange={e => setFormData({...formData, gender: e.target.value})}><option value="male">Male</option><option value="female">Female</option><option value="other">Other</option></select></div>
+            </div>
+          </fieldset>
+
+          {/* Contact Details */}
+          <fieldset className="border rounded-lg p-4">
+            <legend className="font-bold text-lg px-2">Contact Information</legend>
+            <div className="grid md:grid-cols-2 gap-4 mt-2">
+              <div><label className="block font-bold mb-1">Phone *</label><input type="tel" required className="w-full p-2 border rounded" value={formData.phone} onChange={e => setFormData({...formData, phone: e.target.value})} /></div>
+              <div><label className="block font-bold mb-1">Email *</label><input type="email" required className="w-full p-2 border rounded" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} /></div>
+              <div className="md:col-span-2"><label className="block font-bold mb-1">Address</label><input type="text" className="w-full p-2 border rounded" value={formData.address} onChange={e => setFormData({...formData, address: e.target.value})} /></div>
+            </div>
+          </fieldset>
+
+          {/* Flight Details */}
+          <fieldset className="border rounded-lg p-4">
+            <legend className="font-bold text-lg px-2">Flight Details</legend>
+            <div className="grid md:grid-cols-2 gap-4 mt-2">
+              <div><label className="block font-bold mb-1">Airline *</label>
+                <select className="w-full p-2 border rounded" value={formData.airline_id} onChange={e => setFormData({...formData, airline_id: e.target.value})}>
+                  <option value="">Select Airline</option>
+                  {airlines.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                </select>
+              </div>
+              <div><label className="block font-bold mb-1">Travel Class *</label>
+                <select className="w-full p-2 border rounded" value={formData.travel_class} onChange={e => setFormData({...formData, travel_class: e.target.value})}>
+                  <option value="economy">Economy</option>
+                  <option value="business">Business</option>
+                  <option value="first">First</option>
+                </select>
+              </div>
+              <div><label className="block font-bold mb-1">Origin (Airport/City) *</label><input type="text" required className="w-full p-2 border rounded" value={formData.origin} onChange={e => setFormData({...formData, origin: e.target.value})} /></div>
+              <div><label className="block font-bold mb-1">Destination *</label><input type="text" required className="w-full p-2 border rounded" value={formData.destination} onChange={e => setFormData({...formData, destination: e.target.value})} /></div>
+              <div><label className="block font-bold mb-1">Outbound Date *</label><input type="date" required className="w-full p-2 border rounded" value={formData.travel_date} onChange={e => setFormData({...formData, travel_date: e.target.value})} /></div>
+              <div><label className="block font-bold mb-1">Return Date</label><input type="date" className="w-full p-2 border rounded" value={formData.return_date} onChange={e => setFormData({...formData, return_date: e.target.value})} /></div>
+              <div><label className="block font-bold mb-1">Passengers *</label><input type="number" min="1" required className="w-full p-2 border rounded" value={formData.passengers} onChange={e => setFormData({...formData, passengers: e.target.value})} /></div>
+            </div>
+          </fieldset>
+
+          {/* Additional Services */}
+          <fieldset className="border rounded-lg p-4">
+            <legend className="font-bold text-lg px-2">Additional Options</legend>
+            <div className="grid md:grid-cols-2 gap-4 mt-2">
+              <div><label className="block font-bold mb-1">Meal Preference</label>
+                <select className="w-full p-2 border rounded" value={formData.meal_preference} onChange={e => setFormData({...formData, meal_preference: e.target.value})}>
+                  <option value="standard">Standard</option>
+                  <option value="vegetarian">Vegetarian</option>
+                  <option value="vegan">Vegan</option>
+                  <option value="halal">Halal</option>
+                  <option value="kosher">Kosher</option>
+                  <option value="diabetic">Diabetic</option>
+                </select>
+              </div>
+              <div><label className="block font-bold mb-1">Seat Preference</label>
+                <select className="w-full p-2 border rounded" value={formData.seat_preference} onChange={e => setFormData({...formData, seat_preference: e.target.value})}>
+                  <option value="window">Window</option>
+                  <option value="aisle">Aisle</option>
+                  <option value="middle">Middle</option>
+                  <option value="no_preference">No Preference</option>
+                </select>
+              </div>
+              <div className="md:col-span-2"><label className="block font-bold mb-1">Special Assistance</label><input type="text" className="w-full p-2 border rounded" value={formData.special_assistance} onChange={e => setFormData({...formData, special_assistance: e.target.value})} placeholder="E.g., wheelchair, visual assistance, etc." /></div>
+            </div>
+          </fieldset>
+
+          {/* Price Calculator */}
+          <PriceCalculator
+            serviceType="flight"
+            params={{
+              airline_id: formData.airline_id,
+              origin: formData.origin,
+              destination: formData.destination,
+              travel_class: formData.travel_class
+            }}
+            onPriceFetched={handlePriceFetched}
+          />
+
+          {/* File Uploads */}
+          <fieldset className="border rounded-lg p-4">
+            <legend className="font-bold text-lg px-2">Document Upload</legend>
+            <div className="grid md:grid-cols-2 gap-4 mt-2">
+              <div><label className="block font-bold mb-1">Passport Copy (PDF/Image)</label><input type="file" accept="image/*,application/pdf" onChange={(e) => handleFileChange(e, 'passport')} className="w-full p-2 border rounded" /></div>
+              <div><label className="block font-bold mb-1">Visa Copy (if applicable)</label><input type="file" accept="image/*,application/pdf" onChange={(e) => handleFileChange(e, 'visa')} className="w-full p-2 border rounded" /></div>
+            </div>
+          </fieldset>
+
+          {/* Internal Notes */}
+          <div><label className="block font-bold mb-1">Internal Notes (for company use)</label><textarea className="w-full p-2 border rounded" rows="3" value={formData.notes} onChange={e => setFormData({...formData, notes: e.target.value})} placeholder="Any internal remarks or special instructions" /></div>
+
+          <button type="submit" disabled={loading} className="btn-primary w-full">
+            {loading ? 'Submitting...' : (priceAvailable && formData.action_type !== 'quote' ? 'Proceed to Payment' : 'Request Quotation')}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+export default FlightRequest;
+
+
+import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import api from '../services/api';
+import toast from 'react-hot-toast';
+import PriceCalculator from '../components/PriceCalculator';
+
+const InsuranceRequest = () => {
+  const navigate = useNavigate();
+  const [formData, setFormData] = useState({
+    buyer_name: '',
+    phone: '',
+    email: '',
+    vehicle_type: 'Private Car',
+    vehicle_make_model: '',
+    number_plate: '',
+    insurance_type: 'third_party',
+    start_date: '',
+    quarters: 1,
+    base_premium: 0,
+    // Insurance price calculator fields
+    company_id: '',
+    notes: ''
+  });
+  const [priceAvailable, setPriceAvailable] = useState(null);
+  const [calculatedPremium, setCalculatedPremium] = useState(null);
+
+  const handlePriceFetched = (amount, message) => {
+    setCalculatedPremium(amount);
+    setPriceAvailable(amount !== null);
+    if (amount !== null) {
+      setFormData(prev => ({ ...prev, base_premium: amount }));
+    }
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    const payload = {
+      buyer_name: formData.buyer_name,
+      phone: formData.phone,
+      email: formData.email || null,
+      vehicle_type: formData.vehicle_type,
+      vehicle_make_model: formData.vehicle_make_model,
+      number_plate: formData.number_plate,
+      insurance_type: formData.insurance_type,
+      start_date: formData.start_date,
+      quarters: parseInt(formData.quarters, 10),
+      base_premium: calculatedPremium || parseFloat(formData.base_premium) || 0,
+      notes: formData.notes || null,
+    };
+
+    try {
+      const response = await api.post('/api/insurance/request', payload);
+      const requestId = response.data.id;
+      toast.success('Insurance request submitted!');
+      if (priceAvailable) {
+        navigate(`/payment/insurance/${requestId}`);
+      } else {
+        navigate('/dashboard');
+      }
+    } catch (err) {
+      const detail = err.response?.data?.detail;
+      if (Array.isArray(detail)) {
+        toast.error(detail.map(e => e.msg).join(', '));
+      } else if (typeof detail === 'string') {
+        toast.error(detail);
+      } else {
+        toast.error('Failed to submit request. Please check all fields.');
+      }
+    }
+  };
+
+  return (
+    <div className="container mx-auto px-4 py-12 max-w-3xl">
+      <div className="glass-card p-8">
+        <h1 className="text-3xl font-black mb-6">Buy / Renew Vehicle Insurance</h1>
+        <form onSubmit={handleSubmit} className="space-y-6">
+          <div className="grid md:grid-cols-2 gap-6">
+            <div><label className="block font-bold mb-2">Full Name *</label><input type="text" required className="w-full p-3 rounded-xl border" value={formData.buyer_name} onChange={e => setFormData({...formData, buyer_name: e.target.value})}/></div>
+            <div><label className="block font-bold mb-2">Phone *</label><input type="tel" required className="w-full p-3 rounded-xl border" value={formData.phone} onChange={e => setFormData({...formData, phone: e.target.value})}/></div>
+          </div>
+          <div><label className="block font-bold mb-2">Email</label><input type="email" className="w-full p-3 rounded-xl border" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})}/></div>
+
+          {/* Insurance company selection for price calculation */}
+          <div><label className="block font-bold mb-2">Insurance Company</label>
+            <select className="w-full p-3 rounded-xl border" value={formData.company_id} onChange={e => setFormData({...formData, company_id: e.target.value})}>
+              <option value="">Select Company (for instant price)</option>
+              {/* Load companies from backend */}
+              <option value="some-id">Madison Insurance</option>
+              <option value="some-id2">Professional Insurance</option>
+            </select>
+          </div>
+
+          <div className="grid md:grid-cols-2 gap-6">
+            <div><label className="block font-bold mb-2">Vehicle Type</label><input type="text" className="w-full p-3 rounded-xl border" value={formData.vehicle_type} onChange={e => setFormData({...formData, vehicle_type: e.target.value})}/></div>
+            <div><label className="block font-bold mb-2">Make & Model *</label><input type="text" required className="w-full p-3 rounded-xl border" value={formData.vehicle_make_model} onChange={e => setFormData({...formData, vehicle_make_model: e.target.value})}/></div>
+          </div>
+          <div><label className="block font-bold mb-2">Number Plate *</label><input type="text" required className="w-full p-3 rounded-xl border" value={formData.number_plate} onChange={e => setFormData({...formData, number_plate: e.target.value})}/></div>
+
+          <div className="grid md:grid-cols-2 gap-6">
+            <div><label className="block font-bold mb-2">Insurance Type *</label><select className="w-full p-3 rounded-xl border" value={formData.insurance_type} onChange={e => setFormData({...formData, insurance_type: e.target.value})}><option value="third_party">Third Party</option><option value="comprehensive">Comprehensive</option></select></div>
+            <div><label className="block font-bold mb-2">Start Date *</label><input type="date" required className="w-full p-3 rounded-xl border" value={formData.start_date} onChange={e => setFormData({...formData, start_date: e.target.value})}/></div>
+          </div>
+          <div><label className="block font-bold mb-2">Number of Quarters (90 days each)</label><select className="w-full p-3 rounded-xl border" value={formData.quarters} onChange={e => setFormData({...formData, quarters: parseInt(e.target.value)})}><option value="1">1 Quarter (90 days)</option><option value="2">2 Quarters (180 days)</option><option value="3">3 Quarters (270 days)</option><option value="4">4 Quarters (360 days)</option></select></div>
+
+          {/* Price Calculator for Insurance */}
+          <PriceCalculator
+            serviceType="insurance"
+            params={{
+              company_id: formData.company_id,
+              vehicle_type: formData.vehicle_type,
+              insurance_type: formData.insurance_type,
+              quarters: formData.quarters
+            }}
+            onPriceFetched={handlePriceFetched}
+          />
+
+          <div><label className="block font-bold mb-2">Notes</label><textarea className="w-full p-3 rounded-xl border" rows="3" value={formData.notes} onChange={e => setFormData({...formData, notes: e.target.value})}/></div>
+
+          <button type="submit" className="btn-primary w-full justify-center">
+            {priceAvailable ? 'Proceed to Payment' : 'Request Quotation'}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+export default InsuranceRequest;
+
+
+import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import api from '../services/api';
+import toast from 'react-hot-toast';
+
+const VisaRequest = () => {
+  const navigate = useNavigate();
+  const [formData, setFormData] = useState({
+    applicant_name: '',
+    phone: '',
+    email: '',
+    destination_country: '',
+    visa_type: 'tourist',
+    passport_number: '',
+    travel_date: '',
+    base_fee: 0,
+    notes: ''
+  });
+  const [priceAvailable, setPriceAvailable] = useState(false); // for visa, usually need quotation
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    const payload = {
+      ...formData,
+      email: formData.email || null,
+      travel_date: formData.travel_date ? new Date(formData.travel_date).toISOString() : null,
+      base_fee: parseFloat(formData.base_fee) || 0,
+      notes: formData.notes || null,
+    };
+    try {
+      const response = await api.post('/api/visa/request', payload);
+      const requestId = response.data.id;
+      toast.success('Visa assistance request submitted!');
+      if (priceAvailable) {
+        navigate(`/payment/visa/${requestId}`);
+      } else {
+        navigate('/dashboard');
+      }
+    } catch (err) {
+      toast.error('Failed to submit request');
+    }
+  };
+
+  return (
+    <div className="container mx-auto px-4 py-12 max-w-3xl">
+      <div className="glass-card p-8">
+        <h1 className="text-3xl font-black mb-6">Visa Assistance Request</h1>
+        <form onSubmit={handleSubmit} className="space-y-6">
+          <div className="grid md:grid-cols-2 gap-6">
+            <div><label className="block font-bold mb-2">Full Name *</label><input type="text" required className="w-full p-3 rounded-xl border" value={formData.applicant_name} onChange={e => setFormData({...formData, applicant_name: e.target.value})}/></div>
+            <div><label className="block font-bold mb-2">Phone *</label><input type="tel" required className="w-full p-3 rounded-xl border" value={formData.phone} onChange={e => setFormData({...formData, phone: e.target.value})}/></div>
+          </div>
+          <div><label className="block font-bold mb-2">Email</label><input type="email" className="w-full p-3 rounded-xl border" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})}/></div>
+          <div className="grid md:grid-cols-2 gap-6">
+            <div><label className="block font-bold mb-2">Destination Country *</label><input type="text" required className="w-full p-3 rounded-xl border" value={formData.destination_country} onChange={e => setFormData({...formData, destination_country: e.target.value})}/></div>
+            <div><label className="block font-bold mb-2">Visa Type *</label><select required className="w-full p-3 rounded-xl border" value={formData.visa_type} onChange={e => setFormData({...formData, visa_type: e.target.value})}><option value="tourist">Tourist</option><option value="business">Business</option><option value="student">Student</option><option value="transit">Transit</option><option value="work">Work</option></select></div>
+          </div>
+          <div><label className="block font-bold mb-2">Passport Number *</label><input type="text" required className="w-full p-3 rounded-xl border" value={formData.passport_number} onChange={e => setFormData({...formData, passport_number: e.target.value})}/></div>
+          <div><label className="block font-bold mb-2">Intended Travel Date</label><input type="date" className="w-full p-3 rounded-xl border" value={formData.travel_date} onChange={e => setFormData({...formData, travel_date: e.target.value})}/></div>
+          <div><label className="block font-bold mb-2">Visa Fee (Embassy/Consulate) - ZMW</label><input type="number" min="0" step="0.01" className="w-full p-3 rounded-xl border" value={formData.base_fee} onChange={e => setFormData({...formData, base_fee: e.target.value})}/></div>
+          <div><label className="block font-bold mb-2">Notes</label><textarea className="w-full p-3 rounded-xl border" rows="3" value={formData.notes} onChange={e => setFormData({...formData, notes: e.target.value})}/></div>
+          <button type="submit" className="btn-primary w-full justify-center">
+            Request Quotation
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+export default VisaRequest;
